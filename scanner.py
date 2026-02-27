@@ -6,6 +6,8 @@ Conditions (daily bars, per ticker):
   2. Price pulls back to 20-EMA (touch or within 1%)
   3. ADX trending up recently  (ADX now > ADX 5 bars ago)
   4. Direction: bullish if close > EMA, bearish otherwise
+
+Indicators are computed with pure pandas (no pandas_ta / ta-lib needed).
 """
 
 from __future__ import annotations
@@ -17,11 +19,6 @@ from typing import Optional
 
 import pandas as pd
 import yfinance as yf
-
-try:
-    import pandas_ta as ta  # noqa: F401 — imported for df.ta accessor
-except ImportError:
-    raise ImportError("pandas_ta is required. Install with: pip install pandas_ta")
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +54,51 @@ class HolyGrailMatch:
 
 
 # ---------------------------------------------------------------------------
+# Pure-pandas indicator helpers
+# ---------------------------------------------------------------------------
+
+def _ema(series: pd.Series, period: int) -> pd.Series:
+    """Exponential Moving Average using standard EWM (span method)."""
+    return series.ewm(span=period, adjust=False).mean()
+
+
+def _adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder's ADX using EWM with alpha=1/period (equivalent smoothing).
+
+    Uses vectorised pandas operations — no loops required.
+    """
+    alpha = 1.0 / period
+
+    # True Range
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1,
+    ).max(axis=1)
+
+    # Directional Movement
+    up   = high.diff()
+    down = -low.diff()
+
+    plus_dm  = up.where((up > down) & (up > 0), 0.0)
+    minus_dm = down.where((down > up) & (down > 0), 0.0)
+
+    # Wilder smoothing (EWM with alpha = 1/period)
+    atr_s      = tr.ewm(alpha=alpha, adjust=False).mean()
+    plus_di    = 100 * plus_dm.ewm(alpha=alpha, adjust=False).mean() / atr_s
+    minus_di   = 100 * minus_dm.ewm(alpha=alpha, adjust=False).mean() / atr_s
+
+    dx  = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, float("nan"))
+    adx = dx.ewm(alpha=alpha, adjust=False).mean()
+    return adx
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
 def _get_company_name(ticker: str) -> str:
-    """Return the long/short company name for a ticker, or the ticker itself."""
+    """Return the short/long company name for a ticker, or the ticker itself."""
     try:
         info = yf.Ticker(ticker).info
         return info.get("shortName") or info.get("longName") or ticker
@@ -85,45 +122,37 @@ def _check_ticker(ticker: str, interval: str = "1d") -> Optional[HolyGrailMatch]
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
 
-        # --- indicators ---
-        df.ta.ema(length=20, append=True)
-        df.ta.adx(length=14, append=True)
+        # --- compute indicators ---
+        df["EMA_20"] = _ema(df["Close"], 20)
+        df["ADX_14"] = _adx(df["High"], df["Low"], df["Close"], 14)
 
-        ema_col = "EMA_20"
-        adx_col = "ADX_14"
-
-        if ema_col not in df.columns or adx_col not in df.columns:
-            return None
-
-        df.dropna(subset=[ema_col, adx_col], inplace=True)
+        df.dropna(subset=["EMA_20", "ADX_14"], inplace=True)
         if len(df) < 6:
             return None
 
-        latest = df.iloc[-1]
-        adx_now = float(latest[adx_col])
-        ema_now = float(latest[ema_col])
-        close = float(latest["Close"])
-        high = float(latest["High"])
-        low = float(latest["Low"])
+        latest    = df.iloc[-1]
+        adx_now   = float(latest["ADX_14"])
+        ema_now   = float(latest["EMA_20"])
+        close     = float(latest["Close"])
+        high      = float(latest["High"])
+        low       = float(latest["Low"])
 
         # Condition 1: ADX > 30
         if adx_now <= 30:
             return None
 
         # Condition 2: price touches or is within 1% of 20-EMA
-        touch = low <= ema_now <= high
+        touch      = low <= ema_now <= high
         within_pct = abs(close - ema_now) / ema_now < 0.01
         if not (touch or within_pct):
             return None
 
         # Condition 3: ADX trending up (now > 5 bars ago)
-        adx_prev = float(df.iloc[-6][adx_col])
+        adx_prev = float(df.iloc[-6]["ADX_14"])
         if adx_now <= adx_prev:
             return None
 
-        # Direction
-        direction = "Bullish" if close > ema_now else "Bearish"
-
+        direction    = "Bullish" if close > ema_now else "Bearish"
         company_name = _get_company_name(ticker)
 
         return HolyGrailMatch(
@@ -171,7 +200,6 @@ def scan_holy_grail(
             except Exception:
                 errors += 1
 
-    # Sort alphabetically by ticker
     results.sort(key=lambda r: r["ticker"])
 
     return {
