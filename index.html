@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Holy Grail Scanner — Linda Raschke</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa3;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --green: #22c55e;
+    --green-bg: rgba(34,197,94,.10);
+    --red: #ef4444;
+    --red-bg: rgba(239,68,68,.10);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+      Ubuntu, Cantarell, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  /* Header */
+  header { text-align: center; margin-bottom: 2.5rem; }
+  header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: .25rem; }
+  header p { color: var(--text-dim); font-size: .95rem; }
+
+  /* Controls bar */
+  .controls {
+    display: flex; flex-wrap: wrap; gap: .75rem;
+    align-items: center; justify-content: center;
+    margin-bottom: 2rem;
+  }
+
+  select, input[type="text"] {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: .55rem .85rem; border-radius: 8px;
+    font-size: .9rem; outline: none;
+  }
+  select:focus, input[type="text"]:focus { border-color: var(--accent); }
+  input[type="text"] { width: 320px; }
+
+  .btn {
+    background: var(--accent); color: #fff; border: none;
+    padding: .6rem 1.4rem; border-radius: 8px; font-size: .9rem;
+    font-weight: 600; cursor: pointer; transition: background .15s;
+  }
+  .btn:hover { background: var(--accent-hover); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .btn-csv {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .btn-csv:hover { border-color: var(--accent); color: var(--text); }
+
+  /* Status bar */
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: .5rem;
+    margin-bottom: 1rem; font-size: .85rem; color: var(--text-dim);
+  }
+
+  /* Spinner */
+  .spinner {
+    display: none; margin: 3rem auto; text-align: center;
+  }
+  .spinner.active { display: block; }
+  .spinner .ring {
+    width: 40px; height: 40px; margin: 0 auto 1rem;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Progress bar */
+  .progress-wrap {
+    display: none; margin-bottom: 1.5rem;
+  }
+  .progress-wrap.active { display: block; }
+  .progress-bar {
+    height: 4px; background: var(--border); border-radius: 2px; overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%; background: var(--accent); width: 0%;
+    transition: width .3s;
+  }
+
+  /* Table */
+  .table-wrap {
+    overflow-x: auto; border: 1px solid var(--border); border-radius: 10px;
+  }
+  table {
+    width: 100%; border-collapse: collapse; font-size: .9rem;
+  }
+  thead { background: var(--surface); }
+  th {
+    text-align: left; padding: .75rem 1rem; font-weight: 600;
+    color: var(--text-dim); font-size: .8rem; text-transform: uppercase;
+    letter-spacing: .04em; white-space: nowrap;
+  }
+  td { padding: .7rem 1rem; border-top: 1px solid var(--border); white-space: nowrap; }
+
+  tr.bullish { background: var(--green-bg); }
+  tr.bearish { background: var(--red-bg); }
+
+  .badge {
+    display: inline-block; padding: .15rem .55rem; border-radius: 999px;
+    font-size: .78rem; font-weight: 600;
+  }
+  .badge.bull { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge.bear { background: rgba(239,68,68,.15); color: var(--red); }
+
+  /* Empty state */
+  .empty {
+    text-align: center; padding: 4rem 1rem; color: var(--text-dim);
+  }
+  .empty p { margin-top: .5rem; font-size: .95rem; }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .controls { flex-direction: column; align-items: stretch; }
+    input[type="text"] { width: 100%; }
+    header h1 { font-size: 1.35rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <header>
+    <h1>Holy Grail Scanner</h1>
+    <p>Linda Raschke's trend-continuation pullback strategy — US Stocks</p>
+  </header>
+
+  <!-- Controls -->
+  <div class="controls">
+    <select id="timeframe">
+      <option value="1d">Daily</option>
+      <option value="1h">1-Hour</option>
+    </select>
+
+    <select id="direction-filter">
+      <option value="all">All Directions</option>
+      <option value="Bullish">Bullish Only</option>
+      <option value="Bearish">Bearish Only</option>
+    </select>
+
+    <input type="text" id="custom-tickers"
+           placeholder="Custom tickers (e.g. AAPL, TSLA, MSFT)" />
+
+    <button class="btn" id="scan-btn" onclick="runScan()">Scan Now</button>
+    <button class="btn btn-csv" id="csv-btn" onclick="exportCSV()" style="display:none">Export CSV</button>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <span id="scan-info"></span>
+    <span id="scan-time"></span>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill"></div></div>
+  </div>
+
+  <!-- Spinner -->
+  <div class="spinner" id="spinner">
+    <div class="ring"></div>
+    <span>Scanning tickers…</span>
+  </div>
+
+  <!-- Results table -->
+  <div id="results-area">
+    <div class="empty" id="empty-state">
+      <p>Press <strong>Scan Now</strong> to find Holy Grail setups.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ------------------------------------------------------------------ */
+/*  State                                                              */
+/* ------------------------------------------------------------------ */
+let lastResults = [];
+
+/* ------------------------------------------------------------------ */
+/*  Scan                                                               */
+/* ------------------------------------------------------------------ */
+async function runScan() {
+  const btn      = document.getElementById('scan-btn');
+  const spinner  = document.getElementById('spinner');
+  const area     = document.getElementById('results-area');
+  const info     = document.getElementById('scan-info');
+  const timeEl   = document.getElementById('scan-time');
+  const csvBtn   = document.getElementById('csv-btn');
+  const progWrap = document.getElementById('progress-wrap');
+  const progFill = document.getElementById('progress-fill');
+
+  const timeframe = document.getElementById('timeframe').value;
+  const customRaw = document.getElementById('custom-tickers').value.trim();
+
+  let url = `/api/scan?timeframe=${timeframe}`;
+  if (customRaw) {
+    const tickers = customRaw.split(/[\s,]+/).filter(Boolean).join(',');
+    url += `&tickers=${encodeURIComponent(tickers)}`;
+  }
+
+  btn.disabled = true;
+  spinner.classList.add('active');
+  area.innerHTML = '';
+  info.textContent = '';
+  timeEl.textContent = '';
+  csvBtn.style.display = 'none';
+  progWrap.classList.add('active');
+  progFill.style.width = '30%';
+
+  try {
+    const resp = await fetch(url);
+    progFill.style.width = '100%';
+    if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+    const data = await resp.json();
+    lastResults = data.results || [];
+
+    const errors = data.errors || 0;
+    const scanned = data.scanned || 0;
+    info.textContent = `Found ${lastResults.length} setups — scanned ${scanned - errors}/${scanned} tickers` +
+      (errors ? `, ${errors} errors` : '');
+    timeEl.textContent = `Last scan: ${new Date(data.scanned_at).toLocaleString()}`;
+
+    renderTable();
+    if (lastResults.length) csvBtn.style.display = '';
+  } catch (err) {
+    area.innerHTML = `<div class="empty"><p style="color:var(--red)">Error: ${err.message}</p></div>`;
+  } finally {
+    btn.disabled = false;
+    spinner.classList.remove('active');
+    setTimeout(() => { progWrap.classList.remove('active'); progFill.style.width = '0%'; }, 600);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Render                                                             */
+/* ------------------------------------------------------------------ */
+function renderTable() {
+  const area   = document.getElementById('results-area');
+  const filter = document.getElementById('direction-filter').value;
+
+  const rows = filter === 'all'
+    ? lastResults
+    : lastResults.filter(r => r.direction === filter);
+
+  if (!rows.length) {
+    area.innerHTML = '<div class="empty"><p>No matching setups found.</p></div>';
+    return;
+  }
+
+  let html = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th>Ticker</th><th>Company</th><th>Price</th>
+      <th>EMA(20)</th><th>ADX(14)</th><th>Direction</th>
+    </tr></thead><tbody>`;
+
+  for (const r of rows) {
+    const cls = r.direction === 'Bullish' ? 'bullish' : 'bearish';
+    const badge = r.direction === 'Bullish'
+      ? '<span class="badge bull">Bullish</span>'
+      : '<span class="badge bear">Bearish</span>';
+    html += `<tr class="${cls}">
+      <td><strong>${r.ticker}</strong></td>
+      <td>${r.company_name}</td>
+      <td>${r.price.toFixed(2)}</td>
+      <td>${r.ema20.toFixed(2)}</td>
+      <td>${r.adx14.toFixed(2)}</td>
+      <td>${badge}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table></div>';
+  area.innerHTML = html;
+}
+
+/* Re-render on filter change */
+document.getElementById('direction-filter').addEventListener('change', () => {
+  if (lastResults.length) renderTable();
+});
+
+/* ------------------------------------------------------------------ */
+/*  CSV export                                                         */
+/* ------------------------------------------------------------------ */
+function exportCSV() {
+  if (!lastResults.length) return;
+  const header = 'Ticker,Company,Price,EMA20,ADX14,Direction\n';
+  const body = lastResults.map(r =>
+    `${r.ticker},"${r.company_name}",${r.price},${r.ema20},${r.adx14},${r.direction}`
+  ).join('\n');
+
+  const blob = new Blob([header + body], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `holy_grail_scan_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+</script>
+
+</body>
+</html>
