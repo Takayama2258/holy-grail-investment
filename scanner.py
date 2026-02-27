@@ -2,9 +2,9 @@
 Holy Grail Scanner — Linda Raschke's trend-continuation pullback strategy.
 
 Conditions (daily bars, per ticker):
-  1. ADX(14) > 30              → strong trend
-  2. Price pulls back to 20-EMA (touch or within 1%)
-  3. ADX trending up recently  (ADX now > ADX 5 bars ago)
+  1. ADX(14) > 25              → strong/moderate trend
+  2. Price pulls back to 20-EMA (touch or within 2%)
+  3. ADX rising recently OR ADX > 30 (very strong trend)
   4. Direction: bullish if close > EMA, bearish otherwise
 
 Indicators are computed with pure pandas (no pandas_ta / ta-lib needed).
@@ -31,7 +31,7 @@ SP500_TICKERS: list[str] = [
     "BDX", "BK", "BKNG", "BLK", "BMY", "BSX", "BX", "C", "CAT", "CCI",
     "CDNS", "CI", "CL", "CMCSA", "CME", "COF", "COP", "COST", "CRM", "CSCO",
     "CTAS", "CVX", "D", "DE", "DHR", "DIS", "DUK", "ECL", "EL", "EMR",
-    "EQIX", "ETN", "EW", "F", "FDX", "FI", "GD", "GE", "GILD", "GM",
+    "EQIX", "ETN", "EW", "F", "FDX", "GD", "GE", "GILD", "GM",
     "GOOG", "GOOGL", "GS", "HD", "HON", "IBM", "ICE", "INTC", "INTU", "ISRG",
     "ITW", "JNJ", "JPM", "KO", "LIN", "LLY", "LMT", "LOW", "MA", "MCD",
     "MCHP", "MCO", "MDLZ", "MDT", "MET", "META", "MMC", "MO", "MRK", "MS",
@@ -39,7 +39,7 @@ SP500_TICKERS: list[str] = [
     "PEP", "PFE", "PG", "PGR", "PM", "PNC", "PYPL", "QCOM", "REGN", "RTX",
     "SBUX", "SCHW", "SHW", "SLB", "SNPS", "SO", "SPG", "SYK", "T", "TDG",
     "TGT", "TJX", "TMO", "TMUS", "TRV", "TSLA", "TXN", "UNH", "UNP", "UPS",
-    "USB", "V", "VLO", "VRTX", "VZ", "WBA", "WFC", "WM", "WMT", "XOM", "ZTS",
+    "USB", "V", "VLO", "VRTX", "VZ", "WFC", "WM", "WMT", "XOM", "ZTS",
 ]
 
 
@@ -137,19 +137,22 @@ def _check_ticker(ticker: str, interval: str = "1d") -> Optional[HolyGrailMatch]
         high      = float(latest["High"])
         low       = float(latest["Low"])
 
-        # Condition 1: ADX > 30
-        if adx_now <= 30:
+        # Condition 1: ADX > 25 (strong/moderate trend)
+        if adx_now <= 25:
             return None
 
-        # Condition 2: price touches or is within 1% of 20-EMA
+        # Condition 2: price touches or is within 2% of 20-EMA
         touch      = low <= ema_now <= high
-        within_pct = abs(close - ema_now) / ema_now < 0.01
+        within_pct = abs(close - ema_now) / ema_now < 0.02
         if not (touch or within_pct):
             return None
 
-        # Condition 3: ADX trending up (now > 5 bars ago)
+        # Condition 3: ADX was strong recently — either still rising
+        #   OR ADX is high enough (>30) that a small dip is acceptable
         adx_prev = float(df.iloc[-6]["ADX_14"])
-        if adx_now <= adx_prev:
+        adx_rising = adx_now > adx_prev
+        adx_strong = adx_now > 30
+        if not (adx_rising or adx_strong):
             return None
 
         direction    = "Bullish" if close > ema_now else "Bearish"

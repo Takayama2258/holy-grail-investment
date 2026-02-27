@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 
 from scanner import scan_holy_grail
@@ -28,7 +29,7 @@ def main():
     )
     args = parser.parse_args()
 
-    print(f"Running Holy Grail scan (interval={args.interval})...")
+    print(f"Running Holy Grail scan (interval={args.interval})...", flush=True)
     result = scan_holy_grail(interval=args.interval)
 
     payload = {
@@ -41,7 +42,13 @@ def main():
         json.dump(payload, f, indent=2)
 
     n = len(result["results"])
-    print(f"Done — {n} setups found, {result['errors']} errors. Written to {args.output}")
+    print(f"Done — {n} setups found, {result['errors']} errors. Written to {args.output}", flush=True)
+
+    if n > 0:
+        print("Matches:", flush=True)
+        for r in result["results"]:
+            print(f"  {r['ticker']:6s}  ADX={r['adx14']:.1f}  EMA={r['ema20']:.2f}  "
+                  f"Price={r['price']:.2f}  {r['direction']}", flush=True)
 
 
 if __name__ == "__main__":
