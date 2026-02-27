@@ -128,6 +128,15 @@
   }
   .empty p { margin-top: .5rem; font-size: .95rem; }
 
+  /* Static-mode banner */
+  .static-banner {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: .6rem 1rem; margin-bottom: 1.5rem;
+    text-align: center; font-size: .85rem; color: var(--text-dim);
+    display: none;
+  }
+  .static-banner.active { display: block; }
+
   /* Responsive */
   @media (max-width: 640px) {
     .controls { flex-direction: column; align-items: stretch; }
@@ -161,8 +170,14 @@
     <input type="text" id="custom-tickers"
            placeholder="Custom tickers (e.g. AAPL, TSLA, MSFT)" />
 
-    <button class="btn" id="scan-btn" onclick="runScan()">Scan Now</button>
+    <button class="btn" id="scan-btn" onclick="runScan()">Load Results</button>
     <button class="btn btn-csv" id="csv-btn" onclick="exportCSV()" style="display:none">Export CSV</button>
+  </div>
+
+  <!-- Static mode banner (shown on GitHub Pages) -->
+  <div class="static-banner" id="static-banner">
+    Running in static mode — results are pre-computed by GitHub Actions.
+    Timeframe and custom ticker controls are disabled.
   </div>
 
   <!-- Status -->
@@ -196,9 +211,41 @@
 /*  State                                                              */
 /* ------------------------------------------------------------------ */
 let lastResults = [];
+let staticMode = false;
 
 /* ------------------------------------------------------------------ */
-/*  Scan                                                               */
+/*  Mode detection                                                     */
+/*  Static mode: GitHub Pages (no API server). Loads data.json.        */
+/*  Live mode:   Running with server.py (FastAPI).                     */
+/* ------------------------------------------------------------------ */
+async function detectMode() {
+  try {
+    const resp = await fetch('/api/scan?timeframe=1d', { method: 'HEAD' });
+    if (resp.ok) return false; // live API available
+  } catch (_) { /* no server */ }
+  return true; // static mode
+}
+
+async function init() {
+  staticMode = await detectMode();
+
+  const btn    = document.getElementById('scan-btn');
+  const banner = document.getElementById('static-banner');
+
+  if (staticMode) {
+    banner.classList.add('active');
+    document.getElementById('timeframe').disabled = true;
+    document.getElementById('custom-tickers').disabled = true;
+    btn.textContent = 'Load Results';
+    // Auto-load static data on page load
+    runScan();
+  } else {
+    btn.textContent = 'Scan Now';
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Scan / Load                                                        */
 /* ------------------------------------------------------------------ */
 async function runScan() {
   const btn      = document.getElementById('scan-btn');
@@ -210,15 +257,6 @@ async function runScan() {
   const progWrap = document.getElementById('progress-wrap');
   const progFill = document.getElementById('progress-fill');
 
-  const timeframe = document.getElementById('timeframe').value;
-  const customRaw = document.getElementById('custom-tickers').value.trim();
-
-  let url = `/api/scan?timeframe=${timeframe}`;
-  if (customRaw) {
-    const tickers = customRaw.split(/[\s,]+/).filter(Boolean).join(',');
-    url += `&tickers=${encodeURIComponent(tickers)}`;
-  }
-
   btn.disabled = true;
   spinner.classList.add('active');
   area.innerHTML = '';
@@ -229,13 +267,34 @@ async function runScan() {
   progFill.style.width = '30%';
 
   try {
-    const resp = await fetch(url);
-    progFill.style.width = '100%';
-    if (!resp.ok) throw new Error(`Server error ${resp.status}`);
-    const data = await resp.json();
+    let data;
+
+    if (staticMode) {
+      // Load pre-generated data.json
+      const resp = await fetch('data.json');
+      progFill.style.width = '100%';
+      if (!resp.ok) throw new Error('data.json not found — the scan may not have run yet');
+      data = await resp.json();
+    } else {
+      // Live API call
+      const timeframe = document.getElementById('timeframe').value;
+      const customRaw = document.getElementById('custom-tickers').value.trim();
+
+      let url = `/api/scan?timeframe=${timeframe}`;
+      if (customRaw) {
+        const tickers = customRaw.split(/[\s,]+/).filter(Boolean).join(',');
+        url += `&tickers=${encodeURIComponent(tickers)}`;
+      }
+
+      const resp = await fetch(url);
+      progFill.style.width = '100%';
+      if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+      data = await resp.json();
+    }
+
     lastResults = data.results || [];
 
-    const errors = data.errors || 0;
+    const errors  = data.errors || 0;
     const scanned = data.scanned || 0;
     info.textContent = `Found ${lastResults.length} setups — scanned ${scanned - errors}/${scanned} tickers` +
       (errors ? `, ${errors} errors` : '');
@@ -314,6 +373,11 @@ function exportCSV() {
   a.download = `holy_grail_scan_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
 }
+
+/* ------------------------------------------------------------------ */
+/*  Boot                                                               */
+/* ------------------------------------------------------------------ */
+init();
 </script>
 
 </body>
